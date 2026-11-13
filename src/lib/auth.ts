@@ -10,6 +10,20 @@ const secret = new TextEncoder().encode(
   process.env.AUTH_SECRET || "dev-insecure-secret-change-me"
 );
 
+/**
+ * Whether the session cookie is marked Secure (HTTPS-only).
+ * Defaults to true in production. MUST be false when serving over
+ * plain http:// (e.g. running on a bare IP before a domain/TLS is set
+ * up) — a Secure cookie is never sent over http, which breaks login.
+ * Set COOKIE_SECURE=0 for the IP-only deployment.
+ */
+function cookieSecure(): boolean {
+  const v = process.env.COOKIE_SECURE;
+  if (v === "0" || v === "false") return false;
+  if (v === "1" || v === "true") return true;
+  return process.env.NODE_ENV === "production";
+}
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -35,7 +49,7 @@ export async function createSession(user: SessionUser) {
   const jar = await cookies();
   jar.set(COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,

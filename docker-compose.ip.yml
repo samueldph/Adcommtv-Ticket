@@ -1,0 +1,41 @@
+# IP-only production stack (no domain / no HTTPS yet).
+# Serves the app directly on http://<SERVER_IP>  (port 80).
+# Reads secrets from .env. Move to docker-compose.prod.yml (Caddy + HTTPS)
+# once you point a domain at this box.
+#
+# Usage: docker compose -f docker-compose.ip.yml up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: helpdesk
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: helpdesk
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U helpdesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://helpdesk:${POSTGRES_PASSWORD}@db:5432/helpdesk?schema=public
+      AUTH_SECRET: ${AUTH_SECRET}
+      # Serving over plain http:// on a bare IP — cookie must NOT be Secure.
+      COOKIE_SECURE: "0"
+      SEED_DEMO: "0"
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    ports:
+      - "80:3000"
+
+volumes:
+  db_data:
