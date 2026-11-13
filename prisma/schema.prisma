@@ -1,0 +1,161 @@
+// AdcommTV DevDesk — Salesforce delivery work tracker
+// Manages projects, requests, and software development on Salesforce.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN // full control: manage users, projects, all work items, settings
+  AGENT // delivery team: work/assign/resolve any item (devs, admins, SE)
+  REQUESTER // staff who raise requests; see only their own
+}
+
+enum WorkType {
+  REQUEST // intake: someone asks for something
+  DEVELOPMENT // build work (Apex, Flow, LWC, integration…)
+  BUG // something is broken
+  ENHANCEMENT // improve existing functionality
+  TASK // generic project task / chore
+}
+
+enum TicketStatus {
+  BACKLOG
+  OPEN
+  IN_PROGRESS
+  IN_REVIEW // code review / UAT
+  BLOCKED
+  DEPLOYED
+  CLOSED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// Which Salesforce artifact the work touches — helps devs scope it.
+enum SfComponent {
+  APEX
+  FLOW
+  LWC // Lightning Web Component
+  AURA
+  VALIDATION_RULE
+  PERMISSION // profiles / permission sets
+  REPORT_DASHBOARD
+  INTEGRATION
+  DATA // data load / cleanup
+  CONFIG // clicks-not-code config
+  OTHER
+}
+
+// Where the work currently lives in the release path.
+enum DeployStatus {
+  NOT_STARTED
+  IN_SANDBOX
+  IN_TESTING
+  DEPLOYED_PROD
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  DONE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(REQUESTER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  requestedTickets Ticket[]   @relation("requester")
+  assignedTickets  Ticket[]   @relation("assignee")
+  ledProjects      Project[]  @relation("projectLead")
+  comments         Comment[]
+  activities       Activity[]
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  key         String        @unique // short code, e.g. "SFDC", "CPQ"
+  name        String
+  description String        @default("")
+  status      ProjectStatus @default(ACTIVE)
+
+  lead   User?   @relation("projectLead", fields: [leadId], references: [id])
+  leadId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets Ticket[]
+}
+
+model Ticket {
+  id          Int          @id @default(autoincrement())
+  subject     String
+  description String       @default("")
+  type        WorkType     @default(REQUEST)
+  status      TicketStatus @default(OPEN)
+  priority    Priority     @default(MEDIUM)
+
+  // Salesforce context
+  sfComponent  SfComponent? // what artifact the work touches
+  sfEnvironment String? // sandbox name or "Production"
+  deployStatus DeployStatus @default(NOT_STARTED)
+
+  project   Project? @relation(fields: [projectId], references: [id])
+  projectId String?
+
+  requester   User   @relation("requester", fields: [requesterId], references: [id])
+  requesterId String
+
+  assignee   User?   @relation("assignee", fields: [assigneeId], references: [id])
+  assigneeId String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  dueDate    DateTime?
+  resolvedAt DateTime?
+
+  comments   Comment[]
+  activities Activity[]
+
+  @@index([status])
+  @@index([type])
+  @@index([projectId])
+  @@index([assigneeId])
+  @@index([requesterId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  body      String
+  internal  Boolean  @default(false) // internal note vs. visible to requester
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  Int
+  author    User     @relation(fields: [authorId], references: [id])
+  authorId  String
+  createdAt DateTime @default(now())
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketId  Int
+  actor     User     @relation(fields: [actorId], references: [id])
+  actorId   String
+  message   String // e.g. "changed status OPEN -> IN_PROGRESS"
+  createdAt DateTime @default(now())
+}
